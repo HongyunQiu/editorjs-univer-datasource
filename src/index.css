@@ -1,0 +1,227 @@
+.cdx-univer-datasource {
+  --uds-border: #d8dde6;
+  --uds-bg: #fbfcfe;
+  --uds-panel: #ffffff;
+  --uds-text: #152235;
+  --uds-muted: #607089;
+  --uds-accent: #1768ac;
+  --uds-soft: #eaf3fb;
+  --uds-danger: #b42318;
+  border: 1px solid var(--uds-border);
+  border-radius: 14px;
+  background:
+    radial-gradient(circle at top right, rgba(23, 104, 172, 0.08), transparent 28%),
+    linear-gradient(180deg, #ffffff 0%, var(--uds-bg) 100%);
+  color: var(--uds-text);
+  padding: 14px;
+}
+
+.cdx-univer-datasource__top {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+}
+
+.cdx-univer-datasource__meta {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.cdx-univer-datasource__eyebrow {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--uds-accent);
+}
+
+.cdx-univer-datasource__title {
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 1.3;
+}
+
+.cdx-univer-datasource__subtitle {
+  font-size: 12px;
+  color: var(--uds-muted);
+}
+
+.cdx-univer-datasource__status {
+  margin-top: 10px;
+  min-height: 18px;
+  font-size: 12px;
+  color: var(--uds-muted);
+}
+
+.cdx-univer-datasource__status.is-error {
+  color: var(--uds-danger);
+}
+
+.cdx-univer-datasource__section {
+  margin-top: 12px;
+  padding: 12px;
+  border: 1px solid #e7ebf2;
+  border-radius: 12px;
+  background: var(--uds-panel);
+}
+
+.cdx-univer-datasource__section-title {
+  margin-bottom: 10px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--uds-muted);
+}
+
+.cdx-univer-datasource__grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.cdx-univer-datasource__field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.cdx-univer-datasource__field label {
+  font-size: 12px;
+  color: var(--uds-muted);
+}
+
+.cdx-univer-datasource__input,
+.cdx-univer-datasource__select {
+  min-height: 34px;
+  border: 1px solid var(--uds-border);
+  border-radius: 10px;
+  background: #fff;
+  color: var(--uds-text);
+  padding: 0 10px;
+  font-size: 13px;
+}
+
+.cdx-univer-datasource__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.cdx-univer-datasource__button {
+  appearance: none;
+  min-height: 34px;
+  border: 1px solid #c8d7e8;
+  border-radius: 999px;
+  background: #fff;
+  color: var(--uds-text);
+  padding: 0 12px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.cdx-univer-datasource__button:hover:not(:disabled) {
+  border-color: var(--uds-accent);
+  background: var(--uds-soft);
+}
+
+.cdx-univer-datasource__button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.cdx-univer-datasource__button.is-primary {
+  border-color: var(--uds-accent);
+  background: var(--uds-accent);
+  color: #fff;
+}
+
+.cdx-univer-datasource__summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.cdx-univer-datasource__metric {
+  border: 1px solid #e7ebf2;
+  border-radius: 10px;
+  background: #fff;
+  padding: 10px;
+}
+
+.cdx-univer-datasource__metric strong {
+  display: block;
+  font-size: 11px;
+  color: var(--uds-muted);
+}
+
+.cdx-univer-datasource__metric span {
+  display: block;
+  margin-top: 4px;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.cdx-univer-datasource__empty {
+  border: 1px dashed #d7e2ef;
+  border-radius: 10px;
+  padding: 16px;
+  font-size: 13px;
+  color: var(--uds-muted);
+  text-align: center;
+}
+
+.cdx-univer-datasource__table-wrap {
+  overflow-x: auto;
+}
+
+.cdx-univer-datasource__table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.cdx-univer-datasource__table th,
+.cdx-univer-datasource__table td {
+  border: 1px solid #e4e9f1;
+  padding: 8px 10px;
+  vertical-align: top;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.cdx-univer-datasource__table th {
+  background: #f5f8fc;
+  color: #41556f;
+  font-weight: 700;
+}
+
+.cdx-univer-datasource__table td:first-child,
+.cdx-univer-datasource__table th:first-child {
+  position: sticky;
+  left: 0;
+  background: #fff;
+}
+
+.cdx-univer-datasource__table th:first-child {
+  background: #eef4fa;
+}
+
+@media (max-width: 900px) {
+  .cdx-univer-datasource__grid,
+  .cdx-univer-datasource__summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 640px) {
+  .cdx-univer-datasource__top {
+    flex-direction: column;
+  }
+
+  .cdx-univer-datasource__grid,
+  .cdx-univer-datasource__summary {
+    grid-template-columns: 1fr;
+  }
+}
