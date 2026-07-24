@@ -46,8 +46,40 @@ function normalizeData(source) {
     headerRow: toNonNegativeInt(data.headerRow, 0),
     field: typeof data.field === 'string' ? data.field : '',
     keyword: typeof data.keyword === 'string' ? data.keyword : '',
-    match: ['contains', 'prefix', 'equals'].includes(String(data.match || '')) ? String(data.match) : 'contains'
+    match: ['contains', 'prefix', 'equals'].includes(String(data.match || '')) ? String(data.match) : 'contains',
+    datasourceEnabled: !!data.datasourceEnabled,
+    datasourcePermissionMode: String(data.datasourcePermissionMode || '') === 'extended' ? 'extended' : 'inherit',
+    datasourceGrantUserIds: typeof data.datasourceGrantUserIds === 'string' ? data.datasourceGrantUserIds : ''
   };
+}
+
+function normalizeDatasourceConfig(source) {
+  const raw = source && typeof source === 'object' ? source : {};
+  const grants = raw.grants && typeof raw.grants === 'object' ? raw.grants : {};
+  const users = Array.isArray(grants.users) ? grants.users : [];
+  return {
+    enabled: !!raw.enabled,
+    permissionMode: String(raw.permissionMode || '') === 'extended' ? 'extended' : 'inherit',
+    grants: {
+      users: users
+        .map((item) => toPositiveInt(item))
+        .filter(Boolean)
+    }
+  };
+}
+
+function parseGrantUserIds(value) {
+  return String(value == null ? '' : value)
+    .split(/[\s,，;；]+/)
+    .map((item) => toPositiveInt(item))
+    .filter(Boolean);
+}
+
+function formatGrantUserIds(users) {
+  return (Array.isArray(users) ? users : [])
+    .map((item) => toPositiveInt(item))
+    .filter(Boolean)
+    .join(', ');
 }
 
 class UniverDatasourceTool {
@@ -155,6 +187,33 @@ class UniverDatasourceTool {
         </div>
       </div>
       <div class="cdx-univer-datasource__section">
+        <div class="cdx-univer-datasource__section-title">数据源权限声明</div>
+        <div class="cdx-univer-datasource__grid cdx-univer-datasource__grid--permissions">
+          <div class="cdx-univer-datasource__field">
+            <label>启用数据源</label>
+            <select class="cdx-univer-datasource__select" data-role="ds-enabled">
+              <option value="0">否</option>
+              <option value="1">是</option>
+            </select>
+          </div>
+          <div class="cdx-univer-datasource__field">
+            <label>权限模式</label>
+            <select class="cdx-univer-datasource__select" data-role="ds-permission-mode">
+              <option value="inherit">跟随源笔记</option>
+              <option value="extended">允许追加授权</option>
+            </select>
+          </div>
+          <div class="cdx-univer-datasource__field cdx-univer-datasource__field--span-2">
+            <label>追加授权用户 ID</label>
+            <input class="cdx-univer-datasource__input" data-role="ds-grant-user-ids" type="text" placeholder="多个 ID 用逗号分隔，例如 12,18,25" />
+          </div>
+        </div>
+        <div class="cdx-univer-datasource__hint">这里只声明数据源级授权，不改变源笔记本身权限。默认仍先走源笔记权限。</div>
+        <div class="cdx-univer-datasource__actions">
+          <button type="button" class="cdx-univer-datasource__button" data-role="save-config">保存权限声明</button>
+        </div>
+      </div>
+      <div class="cdx-univer-datasource__section">
         <div class="cdx-univer-datasource__section-title">数据源摘要</div>
         <div class="cdx-univer-datasource__summary" data-role="summary"></div>
       </div>
@@ -176,15 +235,22 @@ class UniverDatasourceTool {
     this.fieldSelectEl = wrapper.querySelector('[data-role="field-select"]');
     this.keywordEl = wrapper.querySelector('[data-role="keyword"]');
     this.matchEl = wrapper.querySelector('[data-role="match"]');
+    this.datasourceEnabledEl = wrapper.querySelector('[data-role="ds-enabled"]');
+    this.datasourcePermissionModeEl = wrapper.querySelector('[data-role="ds-permission-mode"]');
+    this.datasourceGrantUserIdsEl = wrapper.querySelector('[data-role="ds-grant-user-ids"]');
     this.listBtnEl = wrapper.querySelector('[data-role="list"]');
     this.readBtnEl = wrapper.querySelector('[data-role="read"]');
     this.openBtnEl = wrapper.querySelector('[data-role="open"]');
+    this.saveConfigBtnEl = wrapper.querySelector('[data-role="save-config"]');
 
     this.noteIdEl.value = this.data.noteId != null ? String(this.data.noteId) : '';
     this.sourceQueryEl.value = this.data.query || '';
     this.headerRowEl.value = String(this.data.headerRow || 0);
     this.keywordEl.value = this.data.keyword || '';
     this.matchEl.value = this.data.match || 'contains';
+    this.datasourceEnabledEl.value = this.data.datasourceEnabled ? '1' : '0';
+    this.datasourcePermissionModeEl.value = this.data.datasourcePermissionMode || 'inherit';
+    this.datasourceGrantUserIdsEl.value = this.data.datasourceGrantUserIds || '';
 
     if (!this.readOnly) {
       this.noteIdEl.addEventListener('input', () => { this.data.noteId = toPositiveInt(this.noteIdEl.value); });
@@ -195,8 +261,12 @@ class UniverDatasourceTool {
       this.sourceSelectEl.addEventListener('change', () => { this.data.selectedSourceKey = this.sourceSelectEl.value || ''; });
       this.sheetSelectEl.addEventListener('change', () => { this.data.sheetKey = this.sheetSelectEl.value || ''; });
       this.fieldSelectEl.addEventListener('change', () => { this.data.field = this.fieldSelectEl.value || ''; });
+      this.datasourceEnabledEl.addEventListener('change', () => { this.data.datasourceEnabled = this.datasourceEnabledEl.value === '1'; });
+      this.datasourcePermissionModeEl.addEventListener('change', () => { this.data.datasourcePermissionMode = this.datasourcePermissionModeEl.value === 'extended' ? 'extended' : 'inherit'; });
+      this.datasourceGrantUserIdsEl.addEventListener('input', () => { this.data.datasourceGrantUserIds = this.datasourceGrantUserIdsEl.value; });
       this.listBtnEl.addEventListener('click', () => { this.loadSources({ silent: false }); });
       this.readBtnEl.addEventListener('click', () => { this.readSource({ silent: false }); });
+      this.saveConfigBtnEl.addEventListener('click', () => { this.saveDatasourceConfig({ silent: false }); });
       this.openBtnEl.addEventListener('click', async () => {
         const source = this.getSelectedSource();
         if (source && typeof this.config.openNoteById === 'function') {
@@ -204,10 +274,10 @@ class UniverDatasourceTool {
         }
       });
     } else {
-      [this.noteIdEl, this.sourceQueryEl, this.sourceSelectEl, this.sheetSelectEl, this.headerRowEl, this.fieldSelectEl, this.keywordEl, this.matchEl].forEach((el) => {
+      [this.noteIdEl, this.sourceQueryEl, this.sourceSelectEl, this.sheetSelectEl, this.headerRowEl, this.fieldSelectEl, this.keywordEl, this.matchEl, this.datasourceEnabledEl, this.datasourcePermissionModeEl, this.datasourceGrantUserIdsEl].forEach((el) => {
         if (el) el.disabled = true;
       });
-      [this.listBtnEl, this.readBtnEl, this.openBtnEl].forEach((el) => {
+      [this.listBtnEl, this.readBtnEl, this.openBtnEl, this.saveConfigBtnEl].forEach((el) => {
         if (el) el.disabled = true;
       });
     }
@@ -274,6 +344,7 @@ class UniverDatasourceTool {
       this.data.selectedSourceKey = buildSourceKey(this.sourceItems[0]);
       this.sourceSelectEl.value = this.data.selectedSourceKey;
     }
+    this.syncDatasourceConfigFromSource(this.getSelectedSource());
   }
 
   async readSource(options = {}) {
@@ -302,6 +373,7 @@ class UniverDatasourceTool {
         limit: 20
       });
       this.readResult = response || null;
+      this.syncDatasourceConfigFromSource(response && response.source ? response.source : null);
       const activeSheet = response && response.active_sheet ? response.active_sheet : null;
       if (activeSheet && activeSheet.key && !this.data.sheetKey) {
         this.data.sheetKey = activeSheet.key;
@@ -350,6 +422,7 @@ class UniverDatasourceTool {
     }
     const source = result.source;
     const sheet = result.active_sheet;
+    const datasource = normalizeDatasourceConfig(source.datasource);
     const metrics = [
       { label: '源笔记', value: `#${source.note_id}` },
       { label: '数据块', value: String(source.block_index) },
@@ -358,7 +431,10 @@ class UniverDatasourceTool {
       { label: '有效列数', value: String(sheet.used_column_count || 0) },
       { label: '命中行数', value: String(result.total || 0) },
       { label: '表头行', value: String(sheet.header_row || 0) },
-      { label: '源标题', value: source.title || '(未设置)' }
+      { label: '源标题', value: source.title || '(未设置)' },
+      { label: '数据源启用', value: datasource.enabled ? '是' : '否' },
+      { label: '权限模式', value: datasource.permissionMode === 'extended' ? '追加授权' : '跟随源笔记' },
+      { label: '授权用户', value: datasource.grants.users.length ? datasource.grants.users.join(', ') : '(无)' }
     ];
     this.summaryEl.innerHTML = metrics.map((item) => `
       <div class="cdx-univer-datasource__metric">
@@ -403,6 +479,53 @@ class UniverDatasourceTool {
     }
   }
 
+  syncDatasourceConfigFromSource(source) {
+    const datasource = normalizeDatasourceConfig(source && source.datasource);
+    this.data.datasourceEnabled = datasource.enabled;
+    this.data.datasourcePermissionMode = datasource.permissionMode;
+    this.data.datasourceGrantUserIds = formatGrantUserIds(datasource.grants.users);
+    if (this.datasourceEnabledEl) this.datasourceEnabledEl.value = datasource.enabled ? '1' : '0';
+    if (this.datasourcePermissionModeEl) this.datasourcePermissionModeEl.value = datasource.permissionMode;
+    if (this.datasourceGrantUserIdsEl) this.datasourceGrantUserIdsEl.value = this.data.datasourceGrantUserIds;
+  }
+
+  async saveDatasourceConfig(options = {}) {
+    const opts = options || {};
+    const source = this.getSelectedSource();
+    if (!source) {
+      this.setStatus('请先选择一个数据源。', true, !opts.silent);
+      return false;
+    }
+    if (typeof this.config.updateSourceConfig !== 'function') {
+      this.setStatus('updateSourceConfig is not configured', true, !opts.silent);
+      return false;
+    }
+
+    const datasource = {
+      enabled: !!this.data.datasourceEnabled,
+      permissionMode: this.data.datasourcePermissionMode === 'extended' ? 'extended' : 'inherit',
+      grants: {
+        users: parseGrantUserIds(this.data.datasourceGrantUserIds)
+      }
+    };
+
+    this.setStatus('正在保存数据源权限声明...', false, false);
+    try {
+      const response = await this.config.updateSourceConfig({
+        note_id: source.note_id,
+        block_index: source.block_index,
+        datasource
+      });
+      this.syncDatasourceConfigFromSource(response && response.source ? response.source : { datasource });
+      await this.loadSources({ silent: true, autoRead: true });
+      this.setStatus('数据源权限声明已保存。', false, !opts.silent);
+      return true;
+    } catch (error) {
+      this.setStatus(error && error.message ? error.message : '保存数据源权限声明失败', true, !opts.silent);
+      return false;
+    }
+  }
+
   save() {
     return {
       noteId: this.data.noteId,
@@ -412,7 +535,10 @@ class UniverDatasourceTool {
       headerRow: toNonNegativeInt(this.data.headerRow, 0) || 0,
       field: this.data.field || '',
       keyword: this.data.keyword || '',
-      match: this.data.match || 'contains'
+      match: this.data.match || 'contains',
+      datasourceEnabled: !!this.data.datasourceEnabled,
+      datasourcePermissionMode: this.data.datasourcePermissionMode === 'extended' ? 'extended' : 'inherit',
+      datasourceGrantUserIds: this.data.datasourceGrantUserIds || ''
     };
   }
 }
