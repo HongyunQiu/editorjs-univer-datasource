@@ -243,3 +243,50 @@
     grid-column: auto;
   }
 }
+
+/* Token output area */
+.cdx-univer-datasource__token-output {
+  margin-top: 10px;
+  min-height: 0;
+}
+
+.cdx-univer-datasource__token-text {
+  font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+  font-size: 12px;
+  color: var(--uds-accent);
+  background: var(--uds-soft);
+  border: 1px solid #c8ddf0;
+  border-radius: 8px;
+  padding: 8px 12px;
+  word-break: break-all;
+  line-height: 1.5;
+}
+
+.cdx-univer-datasource__token-hint {
+  margin-top: 6px;
+  font-size: 12px;
+  color: #1a7f37;
+  font-weight: 600;
+}
+
+/* Assist column checkboxes */
+.cdx-univer-datasource__assist-columns {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  margin-top: 8px;
+}
+
+.cdx-univer-datasource__assist-col-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 13px;
+  color: var(--uds-text);
+  cursor: pointer;
+  user-select: none;
+}
+
+.cdx-univer-datasource__assist-col-label input[type="checkbox"] {
+  accent-color: var(--uds-accent);
+}

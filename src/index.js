@@ -20,6 +20,10 @@ function escapeHtml(value) {
     .replace(/'/g, '&#39;');
 }
 
+function escapeAttr(value) {
+  return escapeHtml(value).replace(/`/g, '&#96;');
+}
+
 function toPositiveInt(value) {
   const n = Number(value);
   if (!Number.isFinite(n) || n <= 0) return null;
@@ -38,6 +42,7 @@ function buildSourceKey(item) {
 
 function normalizeData(source) {
   const data = source && typeof source === 'object' ? source : {};
+  const rawAssistCols = Array.isArray(data.allowedAssistColumns) ? data.allowedAssistColumns : [];
   return {
     noteId: toPositiveInt(data.noteId),
     query: typeof data.query === 'string' ? data.query : '',
@@ -47,9 +52,7 @@ function normalizeData(source) {
     field: typeof data.field === 'string' ? data.field : '',
     keyword: typeof data.keyword === 'string' ? data.keyword : '',
     match: ['contains', 'prefix', 'equals'].includes(String(data.match || '')) ? String(data.match) : 'contains',
-    datasourceEnabled: !!data.datasourceEnabled,
-    datasourcePermissionMode: String(data.datasourcePermissionMode || '') === 'extended' ? 'extended' : 'inherit',
-    datasourceGrantUserIds: typeof data.datasourceGrantUserIds === 'string' ? data.datasourceGrantUserIds : ''
+    allowedAssistColumns: rawAssistCols.filter((c) => typeof c === 'string' && c)
   };
 }
 
@@ -80,6 +83,32 @@ function formatGrantUserIds(users) {
     .map((item) => toPositiveInt(item))
     .filter(Boolean)
     .join(', ');
+}
+
+// Token crypto functions are provided by window.UniverTokenCrypto (defined in editorToolsShared.js)
+// Fallback inline implementation if shared module is not loaded
+function _getTokenCrypto() {
+  if (typeof window !== 'undefined' && window.UniverTokenCrypto) {
+    return window.UniverTokenCrypto;
+  }
+  // Inline fallback (should not happen in production)
+  const SALT = 'univer-datasource-token-v1';
+  async function derive(userId) {
+    const enc = new TextEncoder();
+    const km = await window.crypto.subtle.importKey('raw', enc.encode(SALT + ':' + userId), 'PBKDF2', false, ['deriveKey']);
+    return window.crypto.subtle.deriveKey({ name: 'PBKDF2', salt: enc.encode(SALT), iterations: 100000, hash: 'SHA-256' }, km, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
+  }
+  return {
+    encrypt: async (payload, userId) => {
+      const key = await derive(userId);
+      const iv = window.crypto.getRandomValues(new Uint8Array(12));
+      const ct = await window.crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, new TextEncoder().encode(JSON.stringify(payload)));
+      const c = new Uint8Array(iv.length + new Uint8Array(ct).length); c.set(iv); c.set(new Uint8Array(ct), iv.length);
+      let b = ''; c.forEach((x) => { b += String.fromCharCode(x); });
+      return 'utk:' + btoa(b);
+    },
+    decrypt: null
+  };
 }
 
 class UniverDatasourceTool {
@@ -186,32 +215,18 @@ class UniverDatasourceTool {
           <button type="button" class="cdx-univer-datasource__button is-primary" data-role="read">验证读取与筛选</button>
         </div>
       </div>
+      <div class="cdx-univer-datasource__section" data-role="assist-config-section" style="display:none;">
+        <div class="cdx-univer-datasource__section-title">录入助手列配置</div>
+        <div class="cdx-univer-datasource__hint">勾选允许在录入工具中使用「录入助手」的列。用户在这些列输入时会自动搜索已有数据供选择。</div>
+        <div class="cdx-univer-datasource__assist-columns" data-role="assist-columns"></div>
+      </div>
       <div class="cdx-univer-datasource__section">
-        <div class="cdx-univer-datasource__section-title">数据源权限声明</div>
-        <div class="cdx-univer-datasource__grid cdx-univer-datasource__grid--permissions">
-          <div class="cdx-univer-datasource__field">
-            <label>启用数据源</label>
-            <select class="cdx-univer-datasource__select" data-role="ds-enabled">
-              <option value="0">否</option>
-              <option value="1">是</option>
-            </select>
-          </div>
-          <div class="cdx-univer-datasource__field">
-            <label>权限模式</label>
-            <select class="cdx-univer-datasource__select" data-role="ds-permission-mode">
-              <option value="inherit">跟随源笔记</option>
-              <option value="extended">允许追加授权</option>
-            </select>
-          </div>
-          <div class="cdx-univer-datasource__field cdx-univer-datasource__field--span-2">
-            <label>追加授权用户 ID</label>
-            <input class="cdx-univer-datasource__input" data-role="ds-grant-user-ids" type="text" placeholder="多个 ID 用逗号分隔，例如 12,18,25" />
-          </div>
-        </div>
-        <div class="cdx-univer-datasource__hint">这里只声明数据源级授权，不改变源笔记本身权限。默认仍先走源笔记权限。</div>
+        <div class="cdx-univer-datasource__section-title">Token 生成</div>
+        <div class="cdx-univer-datasource__hint">选择数据源后，点击下方按钮生成加密 Token。Token 可在录入工具中使用，自动填充数据源配置。生成时会同步将当前权限配置写入源笔记。</div>
         <div class="cdx-univer-datasource__actions">
-          <button type="button" class="cdx-univer-datasource__button" data-role="save-config">保存权限声明</button>
+          <button type="button" class="cdx-univer-datasource__button is-primary" data-role="generate-token">生成 Token 并复制</button>
         </div>
+        <div class="cdx-univer-datasource__token-output" data-role="token-output"></div>
       </div>
       <div class="cdx-univer-datasource__section">
         <div class="cdx-univer-datasource__section-title">数据源摘要</div>
@@ -235,22 +250,19 @@ class UniverDatasourceTool {
     this.fieldSelectEl = wrapper.querySelector('[data-role="field-select"]');
     this.keywordEl = wrapper.querySelector('[data-role="keyword"]');
     this.matchEl = wrapper.querySelector('[data-role="match"]');
-    this.datasourceEnabledEl = wrapper.querySelector('[data-role="ds-enabled"]');
-    this.datasourcePermissionModeEl = wrapper.querySelector('[data-role="ds-permission-mode"]');
-    this.datasourceGrantUserIdsEl = wrapper.querySelector('[data-role="ds-grant-user-ids"]');
     this.listBtnEl = wrapper.querySelector('[data-role="list"]');
     this.readBtnEl = wrapper.querySelector('[data-role="read"]');
     this.openBtnEl = wrapper.querySelector('[data-role="open"]');
-    this.saveConfigBtnEl = wrapper.querySelector('[data-role="save-config"]');
+    this.generateTokenBtnEl = wrapper.querySelector('[data-role="generate-token"]');
+    this.tokenOutputEl = wrapper.querySelector('[data-role="token-output"]');
+    this.assistConfigSectionEl = wrapper.querySelector('[data-role="assist-config-section"]');
+    this.assistColumnsEl = wrapper.querySelector('[data-role="assist-columns"]');
 
     this.noteIdEl.value = this.data.noteId != null ? String(this.data.noteId) : '';
     this.sourceQueryEl.value = this.data.query || '';
     this.headerRowEl.value = String(this.data.headerRow || 0);
     this.keywordEl.value = this.data.keyword || '';
     this.matchEl.value = this.data.match || 'contains';
-    this.datasourceEnabledEl.value = this.data.datasourceEnabled ? '1' : '0';
-    this.datasourcePermissionModeEl.value = this.data.datasourcePermissionMode || 'inherit';
-    this.datasourceGrantUserIdsEl.value = this.data.datasourceGrantUserIds || '';
 
     if (!this.readOnly) {
       this.noteIdEl.addEventListener('input', () => { this.data.noteId = toPositiveInt(this.noteIdEl.value); });
@@ -261,12 +273,9 @@ class UniverDatasourceTool {
       this.sourceSelectEl.addEventListener('change', () => { this.data.selectedSourceKey = this.sourceSelectEl.value || ''; });
       this.sheetSelectEl.addEventListener('change', () => { this.data.sheetKey = this.sheetSelectEl.value || ''; });
       this.fieldSelectEl.addEventListener('change', () => { this.data.field = this.fieldSelectEl.value || ''; });
-      this.datasourceEnabledEl.addEventListener('change', () => { this.data.datasourceEnabled = this.datasourceEnabledEl.value === '1'; });
-      this.datasourcePermissionModeEl.addEventListener('change', () => { this.data.datasourcePermissionMode = this.datasourcePermissionModeEl.value === 'extended' ? 'extended' : 'inherit'; });
-      this.datasourceGrantUserIdsEl.addEventListener('input', () => { this.data.datasourceGrantUserIds = this.datasourceGrantUserIdsEl.value; });
       this.listBtnEl.addEventListener('click', () => { this.loadSources({ silent: false }); });
       this.readBtnEl.addEventListener('click', () => { this.readSource({ silent: false }); });
-      this.saveConfigBtnEl.addEventListener('click', () => { this.saveDatasourceConfig({ silent: false }); });
+      this.generateTokenBtnEl.addEventListener('click', () => { this.generateToken({ silent: false }); });
       this.openBtnEl.addEventListener('click', async () => {
         const source = this.getSelectedSource();
         if (source && typeof this.config.openNoteById === 'function') {
@@ -274,10 +283,10 @@ class UniverDatasourceTool {
         }
       });
     } else {
-      [this.noteIdEl, this.sourceQueryEl, this.sourceSelectEl, this.sheetSelectEl, this.headerRowEl, this.fieldSelectEl, this.keywordEl, this.matchEl, this.datasourceEnabledEl, this.datasourcePermissionModeEl, this.datasourceGrantUserIdsEl].forEach((el) => {
+      [this.noteIdEl, this.sourceQueryEl, this.sourceSelectEl, this.sheetSelectEl, this.headerRowEl, this.fieldSelectEl, this.keywordEl, this.matchEl].forEach((el) => {
         if (el) el.disabled = true;
       });
-      [this.listBtnEl, this.readBtnEl, this.openBtnEl, this.saveConfigBtnEl].forEach((el) => {
+      [this.listBtnEl, this.readBtnEl, this.openBtnEl, this.generateTokenBtnEl].forEach((el) => {
         if (el) el.disabled = true;
       });
     }
@@ -380,6 +389,7 @@ class UniverDatasourceTool {
       }
       this.renderSheetOptions();
       this.renderFieldOptions();
+      this.renderAssistColumnOptions();
       this.renderSummary(response);
       this.renderRows(response);
       this.setStatus(`读取成功，共匹配 ${Number(response && response.total) || 0} 行。`, false, !opts.silent);
@@ -415,6 +425,26 @@ class UniverDatasourceTool {
     this.fieldSelectEl.innerHTML = options.join('');
   }
 
+  renderAssistColumnOptions() {
+    const columns = this.readResult && Array.isArray(this.readResult.columns) ? this.readResult.columns : [];
+    if (!columns.length || !this.assistColumnsEl || !this.assistConfigSectionEl) return;
+    this.assistConfigSectionEl.style.display = '';
+    const selected = new Set(Array.isArray(this.data.allowedAssistColumns) ? this.data.allowedAssistColumns : []);
+    this.assistColumnsEl.innerHTML = columns.map((col) => {
+      const checked = selected.has(col.key) ? ' checked' : '';
+      return `<label class="cdx-univer-datasource__assist-col-label"><input type="checkbox" data-role="assist-col-cb" data-col-key="${escapeAttr(col.key)}"${checked} /> ${escapeHtml(col.label || col.key)}</label>`;
+    }).join('');
+    // Bind checkbox change events
+    this.assistColumnsEl.querySelectorAll('[data-role="assist-col-cb"]').forEach((cb) => {
+      cb.addEventListener('change', () => {
+        const key = cb.getAttribute('data-col-key');
+        const current = new Set(Array.isArray(this.data.allowedAssistColumns) ? this.data.allowedAssistColumns : []);
+        if (cb.checked) { current.add(key); } else { current.delete(key); }
+        this.data.allowedAssistColumns = Array.from(current);
+      });
+    });
+  }
+
   renderSummary(result) {
     if (!result || !result.source || !result.active_sheet) {
       this.summaryEl.innerHTML = `<div class="cdx-univer-datasource__empty">选择一个数据源后，这里会显示源笔记、数据块、工作表、行列规模等摘要。</div>`;
@@ -422,7 +452,6 @@ class UniverDatasourceTool {
     }
     const source = result.source;
     const sheet = result.active_sheet;
-    const datasource = normalizeDatasourceConfig(source.datasource);
     const metrics = [
       { label: '源笔记', value: `#${source.note_id}` },
       { label: '数据块', value: String(source.block_index) },
@@ -431,10 +460,7 @@ class UniverDatasourceTool {
       { label: '有效列数', value: String(sheet.used_column_count || 0) },
       { label: '命中行数', value: String(result.total || 0) },
       { label: '表头行', value: String(sheet.header_row || 0) },
-      { label: '源标题', value: source.title || '(未设置)' },
-      { label: '数据源启用', value: datasource.enabled ? '是' : '否' },
-      { label: '权限模式', value: datasource.permissionMode === 'extended' ? '追加授权' : '跟随源笔记' },
-      { label: '授权用户', value: datasource.grants.users.length ? datasource.grants.users.join(', ') : '(无)' }
+      { label: '源标题', value: source.title || '(未设置)' }
     ];
     this.summaryEl.innerHTML = metrics.map((item) => `
       <div class="cdx-univer-datasource__metric">
@@ -480,48 +506,84 @@ class UniverDatasourceTool {
   }
 
   syncDatasourceConfigFromSource(source) {
+    // 仅记录数据源的权限配置信息，用于生成Token时同步授权
     const datasource = normalizeDatasourceConfig(source && source.datasource);
-    this.data.datasourceEnabled = datasource.enabled;
-    this.data.datasourcePermissionMode = datasource.permissionMode;
-    this.data.datasourceGrantUserIds = formatGrantUserIds(datasource.grants.users);
-    if (this.datasourceEnabledEl) this.datasourceEnabledEl.value = datasource.enabled ? '1' : '0';
-    if (this.datasourcePermissionModeEl) this.datasourcePermissionModeEl.value = datasource.permissionMode;
-    if (this.datasourceGrantUserIdsEl) this.datasourceGrantUserIdsEl.value = this.data.datasourceGrantUserIds;
+    this._lastDatasourceConfig = datasource;
   }
 
-  async saveDatasourceConfig(options = {}) {
+  async generateToken(options = {}) {
     const opts = options || {};
     const source = this.getSelectedSource();
     if (!source) {
       this.setStatus('请先选择一个数据源。', true, !opts.silent);
       return false;
     }
-    if (typeof this.config.updateSourceConfig !== 'function') {
-      this.setStatus('updateSourceConfig is not configured', true, !opts.silent);
+
+    const userId = typeof this.config.getCurrentUserId === 'function' ? this.config.getCurrentUserId() : null;
+    if (!userId) {
+      this.setStatus('无法获取当前用户 ID，请确认已登录。', true, !opts.silent);
       return false;
     }
 
-    const datasource = {
-      enabled: !!this.data.datasourceEnabled,
-      permissionMode: this.data.datasourcePermissionMode === 'extended' ? 'extended' : 'inherit',
-      grants: {
-        users: parseGrantUserIds(this.data.datasourceGrantUserIds)
+    // Step 1: 同步将权限配置写入源笔记（强制启用datasource并授权当前用户）
+    if (typeof this.config.updateSourceConfig === 'function') {
+      const currentDs = this._lastDatasourceConfig || normalizeDatasourceConfig(null);
+      // Ensure current user is in grants list
+      const grantUsers = new Set(Array.isArray(currentDs.grants.users) ? currentDs.grants.users : []);
+      grantUsers.add(userId);
+      this.setStatus('正在同步权限配置到源笔记...', false, false);
+      try {
+        await this.config.updateSourceConfig({
+          note_id: source.note_id,
+          block_index: source.block_index,
+          datasource: {
+            enabled: true,
+            permissionMode: 'extended',
+            grants: { users: Array.from(grantUsers) }
+          }
+        });
+      } catch (error) {
+        this.setStatus('同步权限配置失败: ' + (error && error.message ? error.message : '未知错误'), true, !opts.silent);
+        return false;
       }
+    }
+
+    // Step 2: 加密打包Token
+    const payload = {
+      note_id: source.note_id,
+      block_index: source.block_index,
+      sheet_key: this.data.sheetKey || '',
+      header_row: toNonNegativeInt(this.data.headerRow, 0) || 0,
+      allowed_assist_columns: Array.isArray(this.data.allowedAssistColumns) ? this.data.allowedAssistColumns : []
     };
 
-    this.setStatus('正在保存数据源权限声明...', false, false);
+    this.setStatus('正在生成加密 Token...', false, false);
     try {
-      const response = await this.config.updateSourceConfig({
-        note_id: source.note_id,
-        block_index: source.block_index,
-        datasource
-      });
-      this.syncDatasourceConfigFromSource(response && response.source ? response.source : { datasource });
-      await this.loadSources({ silent: true, autoRead: true });
-      this.setStatus('数据源权限声明已保存。', false, !opts.silent);
+      const crypto = _getTokenCrypto();
+      const token = await crypto.encrypt(payload, userId);
+      // 复制到剪贴板
+      try {
+        await navigator.clipboard.writeText(token);
+      } catch (_) {
+        // fallback
+        const ta = document.createElement('textarea');
+        ta.value = token;
+        ta.style.position = 'fixed';
+        ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+      }
+      // 显示Token（截断显示）
+      if (this.tokenOutputEl) {
+        const display = token.length > 60 ? token.substring(0, 30) + '...' + token.substring(token.length - 20) : token;
+        this.tokenOutputEl.innerHTML = `<div class="cdx-univer-datasource__token-text">${escapeHtml(display)}</div><div class="cdx-univer-datasource__token-hint">✅ Token 已复制到剪贴板</div>`;
+      }
+      this.setStatus('Token 已生成并复制到剪贴板。', false, !opts.silent);
       return true;
     } catch (error) {
-      this.setStatus(error && error.message ? error.message : '保存数据源权限声明失败', true, !opts.silent);
+      this.setStatus('生成 Token 失败: ' + (error && error.message ? error.message : '未知错误'), true, !opts.silent);
       return false;
     }
   }
@@ -536,9 +598,7 @@ class UniverDatasourceTool {
       field: this.data.field || '',
       keyword: this.data.keyword || '',
       match: this.data.match || 'contains',
-      datasourceEnabled: !!this.data.datasourceEnabled,
-      datasourcePermissionMode: this.data.datasourcePermissionMode === 'extended' ? 'extended' : 'inherit',
-      datasourceGrantUserIds: this.data.datasourceGrantUserIds || ''
+      allowedAssistColumns: Array.isArray(this.data.allowedAssistColumns) ? this.data.allowedAssistColumns : []
     };
   }
 }
