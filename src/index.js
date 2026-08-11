@@ -559,8 +559,15 @@ class UniverDatasourceTool {
 
     this.setStatus('正在生成加密 Token...', false, false);
     try {
-      const crypto = _getTokenCrypto();
-      const token = await crypto.encrypt(payload, userId);
+      let token = '';
+      if (typeof this.config.createToken === 'function') {
+        const result = await this.config.createToken(payload);
+        token = typeof result === 'string' ? result : String((result && result.token) || '');
+        if (!token) throw new Error('服务端未返回 Token');
+      } else {
+        const crypto = _getTokenCrypto();
+        token = await crypto.encrypt(payload, userId);
+      }
       // 复制到剪贴板
       try {
         await navigator.clipboard.writeText(token);
